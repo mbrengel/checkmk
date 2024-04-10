@@ -1,0 +1,21 @@
+[[source]]
+url = "https://pypi.python.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[dev-packages]
+
+[packages]
+colorama = "==0.4.1"    # Windows has to have some color output
+pyyaml = "==5.4.1"      # to support the agent config
+certifi= "==2022.12.7"
+chardet = "==3.0.4"
+idna = "==2.9"
+requests = {extras = ["socks"], version = "2.26.0"}
+urllib3 = "==1.26.7"
+pyopenssl = "==19.1.0"
+pywin32 = "==300"
+cryptography = "==3.3.2"
+
+[requires]
+python_version = "3.8"

@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Copyright (C) 2019 Checkmk GmbH - License: GNU General Public License v2
+# This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
+# conditions defined in the file COPYING, which is part of this source code package.
+
+# In cooperation with Thorsten Bruhns from OPITZ Consulting
+
+# <<<oracle_undostat>>>
+# TUX2 160 0 1081 300 0
+
+factory_settings["oracle_undostat_defaults"] = {
+    "levels": (600, 300),
+    "nospaceerrcnt_state": 2,
+}
+
+
+def inventory_oracle_undostat(info):
+    return [(line[0], {}) for line in info if len(line) == 6]
+
+
+def check_oracle_undostat(item, params, info):
+    for line in info:
+        if line[0] == item:
+            infotext = ''
+
+            activeblks, maxconcurrency, tuned_undoretention, maxquerylen, nospaceerrcnt = \
+                list(map(int, line[1:]))
+            warn, crit = params["levels"]
+
+            if tuned_undoretention == -1:
+                state = 0
+            elif tuned_undoretention <= crit:
+                state = 2
+            elif tuned_undoretention <= warn:
+                state = 1
+            else:
+                state = 0
+
+            nospaceerrcntpic = ""
+            if nospaceerrcnt:
+                state_errcnt = params['nospaceerrcnt_state']
+                state = max(state, state_errcnt)
+                if state_errcnt == 1:
+                    nospaceerrcntpic = "(!)"
+                elif state_errcnt == 2:
+                    nospaceerrcntpic = "(!!)"
+                elif state_errcnt == 3:
+                    nospaceerrcntpic = "(?)"
+
+            if tuned_undoretention >= 0:
+                infotext = "%s Undoretention (warn/crit at %s/%s), %d active undoblocks, " \
+                    % (get_age_human_readable(tuned_undoretention),
+                   get_age_human_readable(warn),
+                   get_age_human_readable(crit),
+                   activeblks)
+
+            infotext += "%d max concurrent transactions, %s max querylen, %d space errors%s" \
+                % (maxconcurrency,
+                   get_age_human_readable(maxquerylen),
+                   nospaceerrcnt, nospaceerrcntpic)
+
+            perfdata = [
+                ('activeblk', activeblks),
+                ('transconcurrent', maxconcurrency),
+                ('tunedretention', tuned_undoretention, warn, crit),
+                ('querylen', maxquerylen),
+                ('nonspaceerrcount', nospaceerrcnt),
+            ]
+
+            return state, infotext, perfdata
+
+    # In case of missing information we assume that the login into
+    # the database has failed and we simply skip this check. It won't
+    # switch to UNKNOWN, but will get stale.
+    raise MKCounterWrapped("Login into database failed")
+
+
+check_info['oracle_undostat'] = {
+    "check_function": check_oracle_undostat,
+    "inventory_function": inventory_oracle_undostat,
+    "service_description": "ORA %s Undo Retention",
+    "has_perfdata": True,
+    "default_levels_variable": "oracle_undostat_defaults",
+    "group": "oracle_undostat",
+}

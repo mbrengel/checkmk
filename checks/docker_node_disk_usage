@@ -1,0 +1,49 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Copyright (C) 2019 Checkmk GmbH - License: GNU General Public License v2
+# This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
+# conditions defined in the file COPYING, which is part of this source code package.
+import cmk.base.plugins.agent_based.utils.docker as docker
+# NOTE: Careful when replacing the *-import below with a more specific import. This can cause
+# problems because it might remove variables from the check-context which are necessary for
+# resolving legacy discovery results such as [("SUMMARY", "diskstat_default_levels")]. Furthermore,
+# it might also remove variables needed for accessing discovery rulesets.
+from cmk.base.check_legacy_includes.legacy_docker import *  # pylint: disable=wildcard-import,unused-wildcard-import
+
+
+def parse_docker_node_disk_usage(info):
+    version = docker.get_version(info)
+
+    if version is None:
+        return parse_legacy_docker_system_df(info)  # pylint: disable=undefined-variable
+
+    return {r.get('type'): r for r in map(docker.json_get_obj, info[1:]) if r is not None}
+
+
+@append_deprecation_warning  # pylint: disable=undefined-variable
+@get_parsed_item_data
+def check_docker_node_disk_usage(_no_item, params, data):
+
+    for key, human_readable_func in (
+        ('size', get_bytes_human_readable),
+        ('reclaimable', get_bytes_human_readable),
+        ('count', lambda x: x),
+        ('active', lambda x: x),
+    ):
+        value = data[key]
+
+        yield check_levels(value,
+                           key,
+                           params.get(key),
+                           human_readable_func=human_readable_func,
+                           infoname=key.title())
+
+
+check_info["docker_node_disk_usage"] = {
+    "parse_function": parse_docker_node_disk_usage,
+    "inventory_function": discover(),
+    "check_function": check_docker_node_disk_usage,
+    "service_description": "Docker disk usage - %s",
+    "has_perfdata": True,
+    "group": "docker_node_disk_usage",
+}

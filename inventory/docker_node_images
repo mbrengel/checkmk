@@ -1,0 +1,96 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Copyright (C) 2019 Checkmk GmbH - License: GNU General Public License v2
+# This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
+# conditions defined in the file COPYING, which is part of this source code package.
+import cmk.base.plugins.agent_based.utils.docker as docker
+from cmk.base.check_legacy_includes.legacy_docker import *  # pylint: disable=wildcard-import,unused-wildcard-import
+
+
+def _split_subsections(info):
+    subname = ''
+    subsections = {}
+    for row in info:
+        if not row:
+            continue
+        if row[0].startswith('[[[') and row[0].endswith(']]]'):
+            subname = row[0].strip('[]')
+            continue
+        subsections.setdefault(subname, []).append(row)
+    return subsections
+
+
+def parse_docker_node_images(info):
+    version = docker.get_version(info)
+
+    if version is None:
+        subsections = _split_subsections(info)
+        return parse_legacy_docker_node_images(subsections)
+
+    subsections = _split_subsections(info[1:])
+    i_images = (docker.json_get_obj(i) for i in subsections.get('images', []))
+    images = {i["Id"]: i for i in i_images if i is not None}
+    i_containers = (docker.json_get_obj(c) for c in subsections.get('containers', []))
+    containers = {c["Id"]: c for c in i_containers if c is not None}
+
+    running_images = [c['Image'] for c in containers.values()]
+
+    for image_id in images:
+        images[image_id]['amount_containers'] = running_images.count(image_id)
+
+    return {'images': images, 'containers': containers}
+
+
+def _find_labels(data):
+    # docker.format_labels expects a dictionary with a 'Labels' key
+    if 'Labels' in data:
+        # for the legacy parser 'Labels' key is in the root
+        return data
+    if 'Config' in data:
+        # for docker json api 'Labels' key is in 'Config'.
+        return data['Config']
+    return {}
+
+
+def inv_docker_node_images(info, inventory_tree, status_data_tree):
+    parsed = parse_docker_node_images(info)
+    images = parsed.get("images", {})
+    path = "software.applications.docker.images:"
+    inv_node = inventory_tree.get_list(path)
+    status_node = status_data_tree.get_list(path)
+
+    for image_id, image in sorted(images.items()):
+        repodigests = ", ".join(image.get("RepoDigests", []))
+        fallback_repotag = repodigests.split('@', 1)[:1] if '@' in repodigests else []
+        inv_node.append({
+            "repotags": ", ".join(image.get("RepoTags", fallback_repotag)),
+            "repodigests": repodigests,
+            "id": docker.get_short_id(image_id),
+            "creation": image["Created"],
+            "size": image["VirtualSize"],
+            "labels": docker.format_labels(_find_labels(image)),
+        })
+
+        status_node.append({
+            "id": docker.get_short_id(image_id),
+            "amount_containers": image["amount_containers"],
+        })
+
+    containers = parsed.get("containers", {})
+    status_node = status_data_tree.get_list("software.applications.docker.containers:")
+
+    for container_id, container in sorted(containers.items()):
+        status_node.append({
+            "id": docker.get_short_id(container_id),
+            "image": docker.get_short_id(container["Image"]),
+            "name": container["Name"],
+            "creation": container["Created"],
+            "labels": docker.format_labels(_find_labels(container)),
+            "status": container.get("State", {}).get("Status"),
+        })
+
+
+inv_info['docker_node_images'] = {
+    'inv_function': inv_docker_node_images,
+    'has_status_data': True,
+}

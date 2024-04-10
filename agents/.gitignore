@@ -1,0 +1,5 @@
+.rpm.*
+winbuild
+check-mk-agent-*.noarch.rpm
+check-mk-agent_*_all.deb
+/cmk-agent-ctl/

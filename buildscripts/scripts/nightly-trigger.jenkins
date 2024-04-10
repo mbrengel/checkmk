@@ -1,0 +1,80 @@
+BRANCH_NAME = scm.branches[0].name
+ROOT_FOLDER = currentBuild.fullProjectName.split('/')[0]
+FOLDER = Jenkins.instance.getItemByFullName(currentBuild.fullProjectName).getParent().getFullName()
+
+def DISTRO_LIST_DEFAULT = ''
+def NODE = ''
+def DEPLOY_TO_WEBSITE = false
+
+withFolderProperties{
+    switch (JOB_BASE_NAME) {
+        case 'trigger-cre':
+            DISTRO_LIST_DEFAULT = env.DISTRO_LIST_CRE
+            DEPLOY_TO_WEBSITE = false
+            break
+        case 'trigger-cfe':
+            DISTRO_LIST_DEFAULT = env.DISTRO_LIST_CFE
+            DEPLOY_TO_WEBSITE = false
+            break
+        default:
+            DISTRO_LIST_DEFAULT = env.DISTRO_LIST
+            DEPLOY_TO_WEBSITE = !ROOT_FOLDER.startsWith('Testing') // Do not deploy from Testing folder.
+    }
+    NODE = env.BUILD_NODE
+}
+
+properties([
+    buildDiscarder(logRotator(artifactDaysToKeepStr: '', artifactNumToKeepStr: '', daysToKeepStr: '7', numToKeepStr: '14')),
+    parameters([
+        string(name: 'DISTROS', defaultValue: DISTRO_LIST_DEFAULT, description: 'List of targeted distros' ),
+        string(name: 'EDITION', defaultValue: 'enterprise', description: 'Edition: raw, enterprise or managed' )
+    ]),
+    pipelineTriggers([
+        // MIN HOUR DOM MONTH DOW
+        cron('30 5 * * *') // 5:30 am
+    ])
+])
+
+node: {
+    label 'NODE'
+    stage('Build Packages') {
+        build(job: "${FOLDER}/nightly_build_containerized",
+              parameters: [
+                [$class: 'StringParameterValue', name: 'DISTROS', value: DISTROS],
+                [$class: 'StringParameterValue', name: 'EDITION', value: EDITION],
+                [$class: 'BooleanParameterValue', name: 'DEPLOY_TO_WEBSITE', value: DEPLOY_TO_WEBSITE],
+            ]
+        )
+    }
+    stage('Build CMK Container') {
+        build(job: "${FOLDER}/nightly_cmk_container")
+    }
+    parallel([
+        'Integration Test for Packages': {
+            stage('Integration Test for Packages') {
+                build(job: "${FOLDER}/nightly_test_integration-pipeline",
+                      parameters: [
+                        [$class: 'StringParameterValue', name: 'DISTROS', value: DISTROS],
+                        [$class: 'StringParameterValue', name: 'EDITION', value: EDITION]
+                    ]
+                )
+            }
+        },
+        'Integration Test for Docker Container': {
+            stage('Integration Test for Docker Container') {
+                build(job: "${FOLDER}/docker_integration")
+            }
+        },
+
+        'Composition Test for Packages': {
+            stage('Composition Test for Packages') {
+                build(job: "${FOLDER}/test-composition",
+                      parameters: [
+                        [$class: 'StringParameterValue', name: 'DISTROS', value: DISTROS],
+                        [$class: 'StringParameterValue', name: 'EDITION', value: EDITION]
+                    ]
+                )
+            }
+        }
+    ])
+}

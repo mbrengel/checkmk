@@ -1,0 +1,23 @@
+Title: Distributed environments: Improve config synchronization
+Class: feature
+Compatible: compat
+Component: wato
+Date: 1588874595
+Edition: cre
+Knowledge: undoc
+Level: 3
+Version: 2.0.0i1
+
+Synchronizing configurations between the central and remote sites has taken too
+much time in the past because the entire configuration was always synchronized.
+Even files that are still present on the remote site were completely
+synchronized, which led to increased computing effort, traffic and runtime.
+
+This mechanism has now been replaced by an incremental mechanism. Before each
+synchronization, the system determines which files already exist on the remote
+site. Only those files are synchronized that differ from the central site.
+
+Note that for migration purposes, remote sites should be upgraded before the
+central site is upgraded. It is not supported to run a set-up in which the
+central site runs on a newer Checkmk version than the remote sites. See werk
+#13313 for more information.

@@ -1,0 +1,27 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Copyright (C) 2019 Checkmk GmbH - License: GNU General Public License v2
+# This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
+# conditions defined in the file COPYING, which is part of this source code package.
+
+# Example output from agent:
+# Put here the example output from your TCP-Based agent. If the
+# check is SNMP-Based, then remove this section
+# type: ignore
+# pylint: disable=undefined-variable,disable=blacklisted-name
+
+
+def inventory_foobar(info):
+    return []
+
+
+def check_foobar(item, _no_params, info):
+    return 3, "UNKNOWN - Check not implemented"
+
+
+check_info["foobar"] = {
+    "check_function": check_foobar,
+    "inventory_function": inventory_foobar,
+    "service_description": "FOOBAR",
+    "has_perfdata": False,
+}

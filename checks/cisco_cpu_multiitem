@@ -1,0 +1,86 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+# Copyright (C) 2019 Checkmk GmbH - License: GNU General Public License v2
+# This file is part of Checkmk (https://checkmk.com). It is subject to the terms and
+# conditions defined in the file COPYING, which is part of this source code package.
+
+# NOTE: Careful when replacing the *-import below with a more specific import. This can cause
+# problems because it might remove variables from the check-context which are necessary for
+# resolving legacy discovery results such as [("SUMMARY", "diskstat_default_levels")]. Furthermore,
+# it might also remove variables needed for accessing discovery rulesets.
+from typing import NamedTuple, Dict
+
+from cmk.base.check_legacy_includes.cisco_cpu_scan_functions import *  # pylint: disable=wildcard-import,unused-wildcard-import
+from cmk.base.plugins.agent_based.utils.entity_mib import PhysicalClasses
+
+factory_settings['cisco_cpu_multiitem_default_levels'] = {
+    'levels': (80.0, 90.0),
+}
+
+
+class Entity(NamedTuple):
+    description: str
+    physical_class: PhysicalClasses
+
+
+def parse_cisco_cpu_multiitem(info):
+    ph_idx_to_entity: Dict[str, Entity] = {}
+    for idx, desc, class_idx in info[1]:
+        if desc.lower().startswith("cpu "):
+            desc = desc[4:]
+        ph_idx_to_entity[idx] = Entity(desc, PhysicalClasses.parse_cisco(class_idx))
+
+    parsed = {}
+    for cpu_id, idx, util in info[0]:
+        # if cpmCPUTotalEntry can be referenced to an entPhysicalEntry, use information from there.
+        # if cpmCPUTotalEntry has no reference (e.g. is a virtual cpu) use the id of cpmCPUTotalEntry.
+        entity = ph_idx_to_entity.get(idx, Entity(cpu_id, PhysicalClasses.unknown))
+
+        if entity.physical_class in {PhysicalClasses.fan, PhysicalClasses.sensor}:
+            # in case we have a entPhysicalEntry and see it can not be a cpu, ignore it.
+            # we've already seen chassis with cpu (e.g. optional extension slots with cpu)
+            continue
+        try:
+            parsed[entity.description] = {'util': float(util)}
+        except ValueError:
+            pass
+    return parsed
+
+
+@get_parsed_item_data
+def check_cisco_cpu_multiitem(_no_item, params, data):
+    warn, crit = params['levels']
+    value = data['util']
+    yield check_levels(value,
+                       "util", (warn, crit),
+                       human_readable_func=get_percent_human_readable,
+                       boundaries=(0, 100),
+                       infoname="Utilization in the last 5 minutes")
+
+
+check_info["cisco_cpu_multiitem"] = {
+    'parse_function': parse_cisco_cpu_multiitem,
+    'check_function': check_cisco_cpu_multiitem,
+    'inventory_function': discover(),
+    "group": "cpu_utilization_multiitem",
+    "default_levels_variable": "cisco_cpu_multiitem_default_levels",
+    'service_description': 'CPU utilization %s',
+    'has_perfdata': True,
+    'snmp_info': [
+        (
+            '.1.3.6.1.4.1.9.9.109.1.1.1',
+            [
+                OID_END,  #OID index
+                '1.2',  # cpmCPUTotalPhysicalIndex
+                '1.8',  # cpmCPUTotal5minRev
+            ]),
+        (
+            '.1.3.6.1.2.1.47.1.1.1',
+            [
+                OID_END,  #OID index
+                '1.7',  # entPhysicalName
+                '1.5',  # entPhysicalClass
+            ])
+    ],
+    'snmp_scan_function': snmp_scan_cisco_cpu_multiitem,
+}

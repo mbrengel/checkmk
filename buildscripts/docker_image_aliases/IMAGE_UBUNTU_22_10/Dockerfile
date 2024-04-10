@@ -1,0 +1,1 @@
+FROM artifacts.lan.tribe29.com:4000/ubuntu@sha256:c8dd85f3a6bac39c52c019d4887d03916e60e35af1a1be3606093946ff7f5660
